@@ -3,6 +3,7 @@
 Analyze tetrahelix GSD file using freud's EnvironmentMotifMatch.
 Identifies particles in tetrahedral environments and writes a new GSD
 with type differentiation for visualization.
+Types: A=other, L=left-handed, R=right-handed
 """
 
 import numpy as np
@@ -17,7 +18,7 @@ BUFFER_SURFACE = 0.0
 GSD_FILENAME = "tetrahelix_dual.gsd"
 OUTPUT_FILENAME = "tetrahelix_analyzed.gsd"
 R_MAX_FACTOR = 1.5
-THRESHOLD = 0.3  # 30% of d_center (2.0) = 0.6
+THRESHOLD = 0.5  # Increased to catch particles with fewer neighbors
 # =====================================================
 
 # ==================== Load GSD File ====================
@@ -33,7 +34,7 @@ bx = freud.box.Box(Lx=box_L, Ly=box_L, Lz=box_L)
 d_center = 2 * PARTICLE_RADIUS + BUFFER_SURFACE
 
 # Motif: 6 neighbor vectors for tetrahelix environment
-# User-provided motif (already has correct distances for d_center=2.0)
+# User-provided motif (right-handed, distances = d_center)
 motif = np.array([
     [-1.0,        -np.sqrt(3) / 3,        -2 * np.sqrt(6) / 3],
     [ 1.0,        -np.sqrt(3) / 3,        -2 * np.sqrt(6) / 3],
@@ -48,8 +49,12 @@ for i, v in enumerate(motif):
     print(f"  v{i}: dist={np.linalg.norm(v):.3f}")
 # =====================================================
 
-# ==================== Run EnvironmentMotifMatch ====================
-r_max = d_center * R_MAX_FACTOR  # e.g., 1.5 * 2.0 = 3.0
+# ==================== Run EnvironmentMotifMatch (Right-Handed) ====================
+r_max = d_center * R_MAX_FACTOR
+
+# Create neighbor list for all particles
+aq = freud.locality.AABBQuery(bx, positions)
+nlist = aq.query(positions, {'r_max': r_max, 'num_neighbors': 10}).toNeighborList()
 
 emmatch = freud.environment.EnvironmentMotifMatch()
 emmatch.compute(
@@ -57,40 +62,87 @@ emmatch.compute(
     motif=motif,
     threshold=THRESHOLD,
     env_neighbors={'r_max': r_max, 'num_neighbors': 10},
-    registration=True  # User specified True
+    registration=True
 )
 
-matches = emmatch.matches
+matches_R = emmatch.matches  # Right-handed matches
+# =====================================================
+
+# ==================== Match Left-Handed Chain ====================
+# Convert positions to right-handed coordinates (mirror x-axis)
+# Left-handed helix becomes right-handed when x -> -x
+positions_mirrored = positions.copy()
+positions_mirrored[:, 0] = -positions_mirrored[:, 0]
+
+# Create new frame with mirrored positions
+frame_mirrored = gsd.hoomd.Frame()
+frame_mirrored.particles.N = len(positions_mirrored)
+frame_mirrored.particles.position = positions_mirrored
+frame_mirrored.configuration.box = [box_L, box_L, box_L, 0.0, 0.0, 0.0]
+
+# Create neighbor list for mirrored positions
+aq_mirrored = freud.locality.AABBQuery(bx, positions_mirrored)
+nlist_mirrored = aq_mirrored.query(positions_mirrored, {'r_max': r_max, 'num_neighbors': 10}).toNeighborList()
+
+# Run EnvironmentMotifMatch on mirrored positions
+emmatch_left = freud.environment.EnvironmentMotifMatch()
+emmatch_left.compute(
+    system=frame_mirrored,
+    motif=motif,
+    threshold=THRESHOLD,
+    env_neighbors={'r_max': r_max, 'num_neighbors': 10},
+    registration=True
+)
+
+matches_L = emmatch_left.matches  # Left-handed matches (from mirrored coords)
+# =====================================================
+
+# ==================== Assign Types: A=other, L=left, R=right ====================
+typeids = np.zeros(len(positions), dtype=np.uint32)
+
+# Right-handed matches get type 2 ("R")
+typeids[matches_R] = 2
+
+# Left-handed matches get type 1 ("L")
+# If a particle matches both, prioritize R (user specified)
+if np.any(matches_R & matches_L):
+    print("Note: Some particles match both L and R, prioritizing R")
+    typeids[matches_L] = 1  # Will be overwritten by R if both match
+    typeids[matches_R] = 2  # R takes precedence
+else:
+    typeids[matches_L] = 1
 # =====================================================
 
 # ==================== Write NEW GSD with Type Differentiation ====================
-# Type 0 = "A" (non-matching), Type 1 = "B" (matching tetrahelix)
-typeids = np.zeros(len(positions), dtype=np.uint32)
-typeids[matches] = 1
-
 with gsd.hoomd.open(OUTPUT_FILENAME, "w") as f:
     new_frame = gsd.hoomd.Frame()
     new_frame.particles.N = len(positions)
     new_frame.particles.position = positions
     new_frame.particles.diameter = np.full(len(positions), 2*PARTICLE_RADIUS, dtype=np.float32)
     new_frame.particles.typeid = typeids
-    new_frame.particles.types = ["A", "B"]
+    new_frame.particles.types = ["A", "L", "R"]  # A=other, L=left, R=right
     new_frame.configuration.box = [box_L, box_L, box_L, 0.0, 0.0, 0.0]
     f.append(new_frame)
 
 print(f"\nWritten {OUTPUT_FILENAME}")
-print(f"  Type A (other): {np.sum(~matches)} particles")
-print(f"  Type B (tetrahelix): {np.sum(matches)} particles")
+print(f"  Type A (other): {np.sum(typeids == 0)} particles")
+print(f"  Type L (left-handed): {np.sum(typeids == 1)} particles")
+print(f"  Type R (right-handed): {np.sum(typeids == 2)} particles")
 # =====================================================
 
 # ==================== Console Output ====================
 print(f"\nAnalysis Results:")
 print(f"  Total particles: {len(positions)}")
-print(f"  Tetrahelix particles: {np.sum(matches)}")
-if np.sum(matches) > 0:
-    print(f"  Tetrahelix indices: {np.where(matches)[0]}")
+print(f"  Left-handed matches: {np.sum(matches_L)}")
+print(f"  Right-handed matches: {np.sum(matches_R)}")
 
-# Save indices to file
-np.savetxt('tetrahelix_matching_particles.txt', np.where(matches)[0], fmt='%d')
-print(f"  Saved indices to: tetrahelix_matching_particles.txt")
+if np.sum(matches_R) > 0:
+    print(f"  R indices: {np.where(matches_R)[0]}")
+if np.sum(matches_L) > 0:
+    print(f"  L indices: {np.where(matches_L)[0]}")
+
+# Save all matching indices to file
+all_matches = np.where(matches_R | matches_L)[0]
+np.savetxt('tetrahelix_matching_particles.txt', all_matches, fmt='%d')
+print(f"  Saved all matching indices to: tetrahelix_matching_particles.txt")
 # =====================================================
