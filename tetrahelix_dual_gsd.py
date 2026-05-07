@@ -13,6 +13,9 @@ PARTICLE_RADIUS = 1.0          # Sphere radius R
 NUM_PER_CHAIN = 20             # Particles per helix (total = 2 * NUM_PER_CHAIN)
 BUFFER_SURFACE = 0.0           # Surface-to-surface separation between adjacent particles (0 = touching)
 OUTPUT_FILENAME = "tetrahelix_dual.gsd"
+NOISE_SIGMA = 0.05           # Gaussian noise sigma (0.0 = no noise)
+NUM_RANDOM_PARTICLES = 0      # Extra random particles to add (0 = none)
+RANDOM_SEED = None            # Seed for reproducibility (None = random)
 # ==============================================================
 
 # ==================== Boerdijk-Coxeter Helix Geometry ====================
@@ -47,7 +50,36 @@ for n in range(NUM_PER_CHAIN):
     y_l = scale * r_unit * math.sin(n * theta_left)
     positions.append([x_l, y_l, z])
 positions = np.array(positions, dtype=np.float32)
-# ============================================================
+
+# ==================== Add Gaussian Noise to Chain Positions ====================
+if NOISE_SIGMA > 0:
+    if RANDOM_SEED is not None:
+        np.random.seed(RANDOM_SEED)
+    noise = np.random.normal(0, NOISE_SIGMA, positions.shape)
+    positions += noise
+# ==================================================================================
+
+# ==================== Add Random Particles ====================
+if NUM_RANDOM_PARTICLES > 0:
+    if RANDOM_SEED is not None:
+        np.random.seed(RANDOM_SEED)
+    # Compute preliminary box for random particle placement
+    min_vals_prelim = positions.min(axis=0) - PARTICLE_RADIUS
+    max_vals_prelim = positions.max(axis=0) + PARTICLE_RADIUS
+    L_prelim = max(
+        max_vals_prelim[0] - min_vals_prelim[0],
+        max_vals_prelim[1] - min_vals_prelim[1],
+        max_vals_prelim[2] - min_vals_prelim[2]
+    ) * 1.5
+    box_half = L_prelim / 2
+    
+    # Add random particles uniformly in box
+    random_pos = np.random.uniform(
+        -box_half, box_half,
+        size=(NUM_RANDOM_PARTICLES, 3)
+    )
+    positions = np.vstack([positions, random_pos])
+# =================================================================
 
 # ==================== Cubic Periodic Box ====================
 # Account for particle radii in bounds
@@ -87,6 +119,9 @@ with gsd.hoomd.open(OUTPUT_FILENAME, "w") as traj:
 
 print(f"Generated {OUTPUT_FILENAME}")
 print(f"Total particles: {num_particles}")
+print(f"  Chain particles: {2 * NUM_PER_CHAIN}")
+if NUM_RANDOM_PARTICLES > 0:
+    print(f"  Random particles: {NUM_RANDOM_PARTICLES}")
 print(f"Cubic box length: {box_length:.4f}")
 print(f"Helix axis separation: {2 * axis_offset:.1f} (10 diameters = {10 * particle_diameter:.1f})")
 print()
