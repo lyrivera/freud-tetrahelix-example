@@ -140,9 +140,4 @@ if np.sum(matches_R) > 0:
     print(f"  R indices: {np.where(matches_R)[0]}")
 if np.sum(matches_L) > 0:
     print(f"  L indices: {np.where(matches_L)[0]}")
-
-# Save all matching indices to file
-all_matches = np.where(matches_R | matches_L)[0]
-np.savetxt('tetrahelix_matching_particles.txt', all_matches, fmt='%d')
-print(f"  Saved all matching indices to: tetrahelix_matching_particles.txt")
 # =====================================================
