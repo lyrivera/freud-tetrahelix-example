@@ -14,7 +14,7 @@ NUM_PER_CHAIN = 20             # Particles per helix (total = 2 * NUM_PER_CHAIN)
 BUFFER_SURFACE = 0.0           # Surface-to-surface separation between adjacent particles (0 = touching)
 OUTPUT_FILENAME = "tetrahelix_dual.gsd"
 NOISE_SIGMA = 0.05           # Gaussian noise sigma (0.0 = no noise)
-NUM_RANDOM_PARTICLES = 0      # Extra random particles to add (0 = none)
+NUM_RANDOM_PARTICLES = 10      # Extra random particles to add (0 = none)
 RANDOM_SEED = None            # Seed for reproducibility (None = random)
 # ==============================================================
 

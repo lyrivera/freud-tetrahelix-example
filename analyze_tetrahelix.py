@@ -34,14 +34,14 @@ bx = freud.box.Box(Lx=box_L, Ly=box_L, Lz=box_L)
 d_center = 2 * PARTICLE_RADIUS + BUFFER_SURFACE
 
 # Motif: 6 neighbor vectors for tetrahelix environment
-# User-provided motif (right-handed, distances = d_center)
-motif = np.array([
-    [-1.0,        -np.sqrt(3) / 3,        -2 * np.sqrt(6) / 3],
-    [ 1.0,        -np.sqrt(3) / 3,        -2 * np.sqrt(6) / 3],
-    [ 0.0,         2 * np.sqrt(3) / 3,    -2 * np.sqrt(6) / 3],
-    [ 5 / 3,       5 * np.sqrt(3) / 9,    -2 * np.sqrt(6) / 9],
-    [ 1 / 9,       31 * np.sqrt(3) / 27,   2 * np.sqrt(6) / 27],
-    [ 32 / 27,     38 * np.sqrt(3) / 81,   46 * np.sqrt(6) / 81],
+# Unit-scaled, then multiplied by d_center for generality
+motif = d_center * np.array([
+    [-0.5,        -np.sqrt(3) / 6,        -np.sqrt(6) / 3],
+    [ 0.5,        -np.sqrt(3) / 6,        -np.sqrt(6) / 3],
+    [ 0.0,         np.sqrt(3) / 3,        -np.sqrt(6) / 3],
+    [ 5 / 6,       5 * np.sqrt(3) / 18,   -np.sqrt(6) / 9],
+    [ 1 / 18,      31 * np.sqrt(3) / 54,   np.sqrt(6) / 27],
+    [ 16 / 27,     19 * np.sqrt(3) / 81,   23 * np.sqrt(6) / 81],
 ], dtype=np.float32)
 
 print(f"Motif (6 neighbor vectors, edge lengths should be ~{d_center:.1f}):")
@@ -54,14 +54,14 @@ r_max = d_center * R_MAX_FACTOR
 
 # Create neighbor list for all particles
 aq = freud.locality.AABBQuery(bx, positions)
-nlist = aq.query(positions, {'r_max': r_max, 'num_neighbors': 10}).toNeighborList()
+nlist = aq.query(positions, {'r_max': r_max, 'num_neighbors': 6}).toNeighborList()
 
 emmatch = freud.environment.EnvironmentMotifMatch()
 emmatch.compute(
     system=frame,
     motif=motif,
     threshold=THRESHOLD,
-    env_neighbors={'r_max': r_max, 'num_neighbors': 10},
+    env_neighbors={'r_max': r_max, 'num_neighbors': 6},
     registration=True
 )
 
@@ -82,7 +82,7 @@ frame_mirrored.configuration.box = [box_L, box_L, box_L, 0.0, 0.0, 0.0]
 
 # Create neighbor list for mirrored positions
 aq_mirrored = freud.locality.AABBQuery(bx, positions_mirrored)
-nlist_mirrored = aq_mirrored.query(positions_mirrored, {'r_max': r_max, 'num_neighbors': 10}).toNeighborList()
+nlist_mirrored = aq_mirrored.query(positions_mirrored, {'r_max': r_max, 'num_neighbors': 6}).toNeighborList()
 
 # Run EnvironmentMotifMatch on mirrored positions
 emmatch_left = freud.environment.EnvironmentMotifMatch()
@@ -90,7 +90,7 @@ emmatch_left.compute(
     system=frame_mirrored,
     motif=motif,
     threshold=THRESHOLD,
-    env_neighbors={'r_max': r_max, 'num_neighbors': 10},
+    env_neighbors={'r_max': r_max, 'num_neighbors': 6},
     registration=True
 )
 
